@@ -31,7 +31,9 @@ main{padding-top:18px}.section{background:#fff;border:1px solid var(--line);bord
 <div class="progress-row"><span>Packing progress</span><span id="progressText">0 / 0 packed</span></div>
 <div class="track"><div class="bar" id="progressBar"></div></div>
 <div class="actions">
-<button class="secondary" id="saveBtn" type="button">Export checklist</button>
+<button class="secondary" id="saveBtn" type="button">Export backup (.json)</button>
+<button class="secondary" id="importBtn" type="button">Import backup</button>
+<input id="importFile" type="file" accept=".json,application/json" hidden>
 <button class="ghost" id="resetBtn" type="button">Uncheck all</button>
 <button class="ghost" id="clearCustomBtn" type="button">Remove added items</button>
 </div>
@@ -49,7 +51,7 @@ main{padding-top:18px}.section{background:#fff;border:1px solid var(--line);bord
 <main id="checklist"></main>
 <section class="add-panel">
 <h2>＋ Add extra items</h2>
-<p class="hint">Choose a category from the dropdown, then enter the item name. Your additions and tick marks are saved in this browser.</p>
+<p class="hint">Choose a category from the dropdown, then enter the item name. Your additions and tick marks are saved in this browser. Export a JSON backup to move them to another browser or device.</p>
 <div class="form-grid">
 <div class="field"><label for="categorySelect">Item category</label>
 <select id="categorySelect">
@@ -61,7 +63,7 @@ main{padding-top:18px}.section{background:#fff;border:1px solid var(--line);bord
 <form id="addForm" class="add-row"><input id="itemName" maxlength="100" placeholder="Type an item name…" aria-label="New item name" required><button type="submit">Add item</button></form>
 <div class="custom-items" id="customItems"></div>
 </section>
-<p class="small-note">Tip: GitHub Pages can host this as a single <strong>index.html</strong> file. Checklist data is stored locally in this browser, not shared automatically across devices.</p>
+<p class="small-note">Tip: GitHub Pages can host this as a single <strong>index.html</strong> file. Export a JSON backup to save your checklist, then import it on another browser or device. Data is not synced automatically.</p>
 </div>
 <script>
 const defaults = [
@@ -130,23 +132,23 @@ document.getElementById("addForm").addEventListener("submit",e=>{
 document.getElementById("resetBtn").addEventListener("click",()=>{if(confirm("Uncheck every item in the current view? Your added items will remain.")){if(state.activePerson==="everyone")state.checked={};else state.personChecked[state.activePerson]={};persist();render();}});
 document.getElementById("clearCustomBtn").addEventListener("click",()=>{const owner=state.activePerson||"everyone";const matching=state.custom.filter(x=>(x.personId||"everyone")===owner);if(matching.length&&confirm("Remove all custom items in the current view?")){const ids=new Set(matching.map(x=>x.id));matching.forEach(x=>delete state.checked[x.id]);Object.values(state.personChecked).forEach(obj=>ids.forEach(id=>delete obj[id]));state.custom=state.custom.filter(x=>!ids.has(x.id));persist();render();}});
 document.getElementById("saveBtn").addEventListener("click",()=>{
- const lines=["Goa Trip Packing Checklist","",...allGroups().flatMap(g=>[g.title,...g.items.map(i=>`${isChecked(i.id)?"[x]":"[ ]"} ${i.name}`),""])];
- const blob=new Blob([lines.join("\n")],{type:"text/plain;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="goa-packing-checklist.txt";a.click();URL.revokeObjectURL(url);
+ const backup={format:"goa-packing-checklist",version:1,exportedAt:new Date().toISOString(),state};
+ const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="goa-packing-backup.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
-document.getElementById("personSelect").addEventListener("change",e=>{state.activePerson=e.target.value;persist();render();});
-document.getElementById("addPersonBtn").addEventListener("click",()=>{
- const input=document.getElementById("personName"),name=input.value.trim();if(!name){input.focus();return;}
- if(state.people.some(p=>p.name.toLowerCase()===name.toLowerCase())){alert("A traveller with this name already exists.");return;}
- const id="p-"+Date.now()+"-"+Math.random().toString(36).slice(2,6);state.people.push({id,name});state.personChecked[id]={};state.personCustom[id]=[];state.activePerson=id;input.value="";persist();render();
-});
-document.getElementById("personName").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();document.getElementById("addPersonBtn").click();}});
-document.getElementById("renamePersonBtn").addEventListener("click",()=>{
- if(state.activePerson==="everyone")return;const person=state.people.find(p=>p.id===state.activePerson);if(!person)return;
- const name=prompt("Enter a new name for this traveller:",person.name);if(name&&name.trim()){if(state.people.some(p=>p.id!==person.id&&p.name.toLowerCase()===name.trim().toLowerCase())){alert("A traveller with this name already exists.");return;}person.name=name.trim();persist();render();}
-});
-document.getElementById("removePersonBtn").addEventListener("click",()=>{
- if(state.activePerson==="everyone")return;const person=state.people.find(p=>p.id===state.activePerson);if(!person)return;
- if(confirm("Remove "+person.name+" and their personal checklist? Their personal custom items will also be removed.")){const id=state.activePerson;state.people=state.people.filter(p=>p.id!==id);state.custom=state.custom.filter(x=>x.personId!==id);delete state.personChecked[id];delete state.personCustom[id];state.activePerson="everyone";persist();render();}
+document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change",async e=>{
+ const file=e.target.files&&e.target.files[0];if(!file)return;
+ try{
+  const parsed=JSON.parse(await file.text());
+  if(!parsed||parsed.format!=="goa-packing-checklist"||parsed.version!==1||!parsed.state||typeof parsed.state!=="object")throw new Error("This doesn't look like a valid Goa checklist backup.");
+  const incoming=parsed.state;
+  if(!incoming.checked||typeof incoming.checked!=="object"||!Array.isArray(incoming.custom)||!Array.isArray(incoming.people))throw new Error("The backup file is missing required checklist data.");
+  if(!confirm("Import this backup? It will replace the checklist data currently saved in this browser."))return;
+  state={checked:incoming.checked||{},custom:incoming.custom||[],people:incoming.people||[],activePerson:incoming.activePerson||"everyone",personChecked:incoming.personChecked||{},personCustom:incoming.personCustom||{}};
+  persist();render();alert("Checklist backup imported successfully.");
+ }catch(err){alert("Could not import backup: "+err.message);}
+ finally{e.target.value="";}
 });
 render();
 </script>
