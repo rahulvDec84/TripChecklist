@@ -77,9 +77,19 @@ const defaults = [
 ];
 const KEY="goaPackingChecklist_v1";
 let state={checked:{},custom:[],people:[],activePerson:"everyone",personChecked:{},personCustom:{}};
-if(!Array.isArray(state.people))state.people=[];
-
-try{const saved=JSON.parse(localStorage.getItem(KEY)||"null");if(saved&&typeof saved==="object")state={checked:saved.checked||{},custom:Array.isArray(saved.custom)?saved.custom:[]};}catch(e){}
+try{
+ const saved=JSON.parse(localStorage.getItem(KEY)||"null");
+ if(saved&&typeof saved==="object"){
+  state={
+   checked:saved.checked&&typeof saved.checked==="object"?saved.checked:{},
+   custom:Array.isArray(saved.custom)?saved.custom:[],
+   people:Array.isArray(saved.people)?saved.people:[],
+   activePerson:typeof saved.activePerson==="string"?saved.activePerson:"everyone",
+   personChecked:saved.personChecked&&typeof saved.personChecked==="object"?saved.personChecked:{},
+   personCustom:saved.personCustom&&typeof saved.personCustom==="object"?saved.personCustom:{}
+  };
+ }
+}catch(e){}
 const checklist=document.getElementById("checklist"), progressText=document.getElementById("progressText"), progressBar=document.getElementById("progressBar");
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
 function allGroups(){
@@ -131,6 +141,43 @@ document.getElementById("addForm").addEventListener("submit",e=>{
 });
 document.getElementById("resetBtn").addEventListener("click",()=>{if(confirm("Uncheck every item in the current view? Your added items will remain.")){if(state.activePerson==="everyone")state.checked={};else state.personChecked[state.activePerson]={};persist();render();}});
 document.getElementById("clearCustomBtn").addEventListener("click",()=>{const owner=state.activePerson||"everyone";const matching=state.custom.filter(x=>(x.personId||"everyone")===owner);if(matching.length&&confirm("Remove all custom items in the current view?")){const ids=new Set(matching.map(x=>x.id));matching.forEach(x=>delete state.checked[x.id]);Object.values(state.personChecked).forEach(obj=>ids.forEach(id=>delete obj[id]));state.custom=state.custom.filter(x=>!ids.has(x.id));persist();render();}});
+
+document.getElementById("personSelect").addEventListener("change",e=>{state.activePerson=e.target.value;persist();render();});
+document.getElementById("addPersonBtn").addEventListener("click",()=>{
+ const input=document.getElementById("personName");
+ const name=input.value.trim();
+ if(!name){input.focus();input.setCustomValidity("Please enter a person's name.");input.reportValidity();return;}
+ input.setCustomValidity("");
+ if(state.people.some(p=>p.name.toLowerCase()===name.toLowerCase())){alert("A traveller with this name already exists.");return;}
+ const id="p-"+Date.now()+"-"+Math.random().toString(36).slice(2,6);
+ state.people.push({id,name});
+ state.personChecked[id]={};
+ state.personCustom[id]=[];
+ state.activePerson=id;
+ input.value="";
+ persist();
+ render();
+});
+document.getElementById("personName").addEventListener("input",e=>e.target.setCustomValidity(""));
+document.getElementById("personName").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();document.getElementById("addPersonBtn").click();}});
+document.getElementById("renamePersonBtn").addEventListener("click",()=>{
+ if(state.activePerson==="everyone")return;
+ const person=state.people.find(p=>p.id===state.activePerson);if(!person)return;
+ const name=prompt("Enter a new name for this traveller:",person.name);
+ if(name&&name.trim()){
+  if(state.people.some(p=>p.id!==person.id&&p.name.toLowerCase()===name.trim().toLowerCase())){alert("A traveller with this name already exists.");return;}
+  person.name=name.trim();persist();render();
+ }
+});
+document.getElementById("removePersonBtn").addEventListener("click",()=>{
+ if(state.activePerson==="everyone")return;
+ const person=state.people.find(p=>p.id===state.activePerson);if(!person)return;
+ if(confirm("Remove "+person.name+" and their personal checklist? Their personal custom items will also be removed.")){
+  const id=state.activePerson;state.people=state.people.filter(p=>p.id!==id);state.custom=state.custom.filter(x=>x.personId!==id);
+  delete state.personChecked[id];delete state.personCustom[id];state.activePerson="everyone";persist();render();
+ }
+});
+
 document.getElementById("saveBtn").addEventListener("click",()=>{
  const backup={format:"goa-packing-checklist",version:1,exportedAt:new Date().toISOString(),state};
  const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json;charset=utf-8"});
